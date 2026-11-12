@@ -3,7 +3,7 @@ services:
     name: codenexus
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build --workspace=frontend
+    buildCommand: npm install --include=dev && npm run build --workspace=frontend
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
