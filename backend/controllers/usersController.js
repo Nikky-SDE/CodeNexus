@@ -1,0 +1,414 @@
+import User from '../models/User.js';
+// import ProfileViewLog from '../models/ProfileViewLog.js';
+import Post from '../models/Post.js';
+import Comment from '../models/Comment.js';
+import Contest from '../models/Contest.js';
+import { getJwtSecret } from '../utils/jwt.js';
+import { escapeRegex, isSafeHttpUrl } from '../utils/sanitize.js';
+import jwt from 'jsonwebtoken';
+
+// GET /api/users/top-rankers
+// Returns top 10 verified users sorted by CF rating descending
+export const getTopRankers = async (req, res) => {
+  try {
+    const rankers = await User.find({ isVerified: true, rating: { $exists: true, $gt: 0 } })
+      .select('username cfHandle rank rating isWingMember isAdmin isCoordinator customTitle')
+      .sort({ rating: -1 })
+      .limit(10);
+    res.json({ rankers });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// GET /api/users/top-contributors
+// Returns top 10 users sorted by karma descending
+export const getTopContributors = async (req, res) => {
+  try {
+    const contributors = await User.find({})
+      .select('username cfHandle rank rating isWingMember isAdmin isCoordinator customTitle karma')
+      .sort({ karma: -1 })
+      .limit(10);
+    res.json({ contributors });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// GET /api/users/search?q=
+export const searchUsers = async (req, res) => {
+  try {
+    const q = req.query.q;
+    if (typeof q !== 'string' || !q.trim()) return res.json({ users: [] });
+    const safeQ = escapeRegex(q.trim().slice(0, 50));
+    const users = await User.find({ username: { $regex: safeQ, $options: 'i' } })
+      .select('username cfHandle rank isWingMember avatarUrl')
+      .limit(10);
+    res.json({ users });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// POST /api/users/make-wing-member
+// Deprecated / kept for backward compatibility if needed, but updateUserRoles replaces this.
+export const makeWingMember = async (req, res) => {
+  try {
+    const reqUser = await User.findById(req.user.id).select('isAdmin');
+    if (!reqUser || !reqUser.isAdmin) {
+      return res.status(403).json({ message: 'Only admin can grant wing member access.' });
+    }
+
+    const { username } = req.body;
+    if (!username) {
+      return res.status(400).json({ message: 'Username is required.' });
+    }
+
+    const targetUser = await User.findOneAndUpdate(
+      { username: new RegExp(`^${escapeRegex(username.trim())}$`, 'i') }, 
+      { $set: { isWingMember: true } },
+      { new: true }
+    );
+
+    if (!targetUser) {
+      return res.status(404).json({ message: `User '${username}' not found.` });
+    }
+
+    res.json({ message: `Successfully elevated ${targetUser.username} to Wing Member.`, user: targetUser });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error promoting user' });
+  }
+};
+
+// PUT /api/users/:username/roles
+// Admin only.
+export const updateUserRoles = async (req, res) => {
+  try {
+    // We expect the requesting user to be an Admin
+    const reqUser = await User.findById(req.user.id);
+    if (!reqUser || !reqUser.isAdmin) {
+      return res.status(403).json({ message: 'Only admins can modify roles.' });
+    }
+
+    const { username } = req.params;
+    const { isAdmin, isWingMember, isCoordinator, customTitle } = req.body;
+
+    const targetUser = await User.findOne({ username: new RegExp(`^${escapeRegex(username.trim())}$`, 'i') });
+    if (!targetUser) {
+      return res.status(404).json({ message: `User '${username}' not found.` });
+    }
+
+    if (isAdmin !== undefined) targetUser.isAdmin = isAdmin;
+    if (isWingMember !== undefined) targetUser.isWingMember = isWingMember;
+    if (isCoordinator !== undefined) targetUser.isCoordinator = isCoordinator;
+    if (customTitle !== undefined) targetUser.customTitle = customTitle.trim();
+
+    await targetUser.save();
+
+    res.json({ message: `Roles updated for ${targetUser.username}`, user: targetUser });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error updating roles' });
+  }
+};
+
+// GET /api/users
+// Admin only. Returns all users.
+export const getAllUsers = async (req, res) => {
+  try {
+    const users = await User.find({})
+      .select('username cfHandle rank rating isWingMember isAdmin isCoordinator customTitle karma isVerified createdAt')
+      .sort({ createdAt: -1 });
+    res.json({ users });
+  } catch (err) {
+    console.error('getAllUsers error:', err);
+    res.status(500).json({ message: 'Server error fetching all users' });
+  }
+};
+
+// GET /api/users/:username
+// Public profile — returns user's public info
+export const getUserProfile = async (req, res) => {
+  try {
+    const user = await User.findOne({
+      username: new RegExp(`^${escapeRegex(req.params.username.trim())}$`, 'i'),
+    }).select('-password -__v -email -resetPasswordToken -resetPasswordExpire');
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    // Count their posts, editorials, and comments
+    const [postCount, editorialCount, commentCount, userContests] = await Promise.all([
+      Post.countDocuments({ author: user._id, isEditorial: false }),
+      Post.countDocuments({ author: user._id, isEditorial: true }),
+      Comment.countDocuments({ author: user._id }),
+      Contest.find({ isWingContest: true, topPerformers: user._id }),
+    ]);
+
+    let gold = 0, silver = 0, bronze = 0;
+    userContests.forEach(c => {
+      if (c.topPerformers[0]?.toString() === user._id.toString()) gold++;
+      else if (c.topPerformers[1]?.toString() === user._id.toString()) silver++;
+      else if (c.topPerformers[2]?.toString() === user._id.toString()) bronze++;
+    });
+
+    const isFollowing = req.user ? user.followers?.includes(req.user.id) : false;
+
+    res.json({ 
+      user, 
+      stats: { 
+        postCount, 
+        editorialCount, 
+        commentCount, 
+        medals: { gold, silver, bronze },
+        followersCount: user.followers?.length || 0,
+        followingCount: user.following?.length || 0,
+        isFollowing
+      } 
+    });
+  } catch (err) {
+    console.error('getUserProfile error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// GET /api/users/:username/activity
+// Public — paginated feed of a user's posts, editorials, and comments
+export const getUserActivity = async (req, res) => {
+  try {
+    const user = await User.findOne({
+      username: new RegExp(`^${escapeRegex(req.params.username.trim())}$`, 'i'),
+    }).select('_id');
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    const [posts, editorials, comments] = await Promise.all([
+      Post.find({ author: user._id, isEditorial: false })
+        .select('title content category upvotes createdAt cfProblemId')
+        .sort({ createdAt: -1 })
+        .limit(20),
+
+      Post.find({ author: user._id, isEditorial: true })
+        .select('title questionNumber upvotes createdAt')
+        .sort({ createdAt: -1 })
+        .limit(20),
+
+      Comment.find({ author: user._id })
+        .populate('post', 'title _id')
+        .select('content createdAt post')
+        .sort({ createdAt: -1 })
+        .limit(20),
+    ]);
+
+    res.json({ posts, editorials, comments });
+  } catch (err) {
+    console.error('getUserActivity error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// PUT /api/users/profile
+// Authenticated user can update their profile (like avatarUrl)
+export const updateUserProfile = async (req, res) => {
+  try {
+    const { avatarUrl, socialLinks } = req.body;
+    
+    const SAFE_DATA_IMAGE = /^data:image\/(png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/i;
+    if (avatarUrl) {
+      if (typeof avatarUrl !== 'string' || (!isSafeHttpUrl(avatarUrl) && !SAFE_DATA_IMAGE.test(avatarUrl))) {
+        return res.status(400).json({ message: 'Avatar URL must be http(s) or a valid PNG/JPEG/WEBP/GIF base64 image.' });
+      }
+    }
+
+    const updateData = {};
+    if (avatarUrl !== undefined) updateData.avatarUrl = typeof avatarUrl === 'string' ? avatarUrl.trim() : '';
+    if (socialLinks !== undefined) {
+      if (typeof socialLinks !== 'object' || socialLinks === null || Array.isArray(socialLinks)) {
+        return res.status(400).json({ message: 'Invalid socialLinks payload.' });
+      }
+      const allowedLinkKeys = ['github', 'linkedin', 'leetcode', 'codeforces', 'codechef', 'portfolio', 'other'];
+      const cleanedLinks = {};
+      for (const key of allowedLinkKeys) {
+        const val = socialLinks[key];
+        if (typeof val === 'string' && val.trim()) {
+          if (!isSafeHttpUrl(val)) {
+            return res.status(400).json({ message: `Invalid URL for ${key}. Must start with http:// or https://.` });
+          }
+          cleanedLinks[key] = val.trim();
+        } else {
+          cleanedLinks[key] = '';
+        }
+      }
+      updateData.socialLinks = cleanedLinks;
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user.id,
+      { $set: updateData },
+      { new: true }
+    ).select('-password');
+
+    res.json({ message: 'Profile updated successfully', user: updatedUser });
+  } catch (err) {
+    console.error('updateUserProfile error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// PUT /api/users/profile/username
+export const updateUsername = async (req, res) => {
+  try {
+    const { newUsername } = req.body;
+    if (typeof newUsername !== 'string' || !newUsername.trim()) {
+      return res.status(400).json({ message: 'New username is required.' });
+    }
+
+    const username = newUsername.trim();
+    if (!/^[a-zA-Z0-9_.-]{3,30}$/.test(username)) {
+      return res.status(400).json({ message: 'Username must be 3-30 characters and contain only letters, numbers, _, ., or -.' });
+    }
+    
+    // Check if taken
+    const existing = await User.findOne({ username: new RegExp(`^${escapeRegex(username)}$`, 'i') });
+    if (existing) {
+      return res.status(400).json({ message: 'Username is already taken.' });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ message: 'User not found.' });
+
+    user.username = username;
+    await user.save();
+
+    // Re-issue JWT token with the new username
+    const token = jwt.sign(
+      { id: user._id, username: user.username },
+      getJwtSecret(),
+      { expiresIn: '7d' }
+    );
+
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    res.json({ message: 'Username updated successfully', username: user.username });
+  } catch (err) {
+    console.error('updateUsername error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// POST /api/users/:username/follow
+export const followUser = async (req, res) => {
+  try {
+    const currentUserId = req.user.id;
+    const targetUser = await User.findOne({ username: new RegExp(`^${escapeRegex(req.params.username.trim())}$`, 'i') });
+    
+    if (!targetUser) return res.status(404).json({ message: 'User not found.' });
+    if (targetUser._id.toString() === currentUserId) return res.status(400).json({ message: 'You cannot follow yourself.' });
+
+    // Add to current user's following list
+    await User.findByIdAndUpdate(currentUserId, { $addToSet: { following: targetUser._id } });
+    // Add to target user's followers list
+    await User.findByIdAndUpdate(targetUser._id, { $addToSet: { followers: currentUserId } });
+
+    res.json({ message: `You are now following ${targetUser.username}` });
+  } catch (err) {
+    console.error('followUser error:', err);
+    res.status(500).json({ message: 'Server error following user' });
+  }
+};
+
+// POST /api/users/:username/unfollow
+export const unfollowUser = async (req, res) => {
+  try {
+    const currentUserId = req.user.id;
+    const targetUser = await User.findOne({ username: new RegExp(`^${escapeRegex(req.params.username.trim())}$`, 'i') });
+    
+    if (!targetUser) return res.status(404).json({ message: 'User not found.' });
+
+    // Remove from current user's following list
+    await User.findByIdAndUpdate(currentUserId, { $pull: { following: targetUser._id } });
+    // Remove from target user's followers list
+    await User.findByIdAndUpdate(targetUser._id, { $pull: { followers: currentUserId } });
+
+    res.json({ message: `You unfollowed ${targetUser.username}` });
+  } catch (err) {
+    console.error('unfollowUser error:', err);
+    res.status(500).json({ message: 'Server error unfollowing user' });
+  }
+};
+
+// POST /api/users/streak
+// Authenticated — update the current user's daily login streak
+export const updateStreak = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ message: 'User not found.' });
+
+    // Get today's date in UTC (year/month/day only — no time)
+    const now = new Date();
+    const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
+    let streak = user.streakCount || 0;
+    let maxStreak = user.maxStreak || 0;
+    let updated = false;
+
+    if (!user.lastStreakDate) {
+      // First ever visit
+      streak = 1;
+      updated = true;
+    } else {
+      const last = new Date(user.lastStreakDate);
+      const lastUTC = new Date(Date.UTC(last.getUTCFullYear(), last.getUTCMonth(), last.getUTCDate()));
+      const diffDays = Math.round((todayUTC - lastUTC) / (1000 * 60 * 60 * 24));
+
+      if (diffDays === 0) {
+        // Already visited today — no change, just update lastActiveAt
+      } else if (diffDays === 1) {
+        // Consecutive day — increment streak
+        streak += 1;
+        updated = true;
+      } else {
+        // Missed day(s) — reset streak
+        streak = 1;
+        updated = true;
+      }
+    }
+
+    if (streak > maxStreak) maxStreak = streak;
+
+    const updatePayload = { lastActiveAt: now };
+    if (updated) {
+      updatePayload.streakCount = streak;
+      updatePayload.maxStreak = maxStreak;
+      updatePayload.lastStreakDate = todayUTC;
+    }
+
+    const dateString = now.toISOString().split('T')[0];
+
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user.id,
+      { 
+        $set: updatePayload,
+        $addToSet: { activeDates: dateString } 
+      },
+      { new: true }
+    ).select('streakCount maxStreak lastStreakDate lastActiveAt activeDates');
+
+    res.json({ streakCount: updatedUser.streakCount, maxStreak: updatedUser.maxStreak, updated });
+  } catch (err) {
+    console.error('updateStreak error:', err);
+    res.status(500).json({ message: 'Server error updating streak' });
+  }
+};

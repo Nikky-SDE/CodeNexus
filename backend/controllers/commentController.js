@@ -1,0 +1,112 @@
+import Comment from '../models/Comment.js';
+import Post from '../models/Post.js';
+import User from '../models/User.js';
+import Notification from '../models/Notification.js';
+import { extractUsernames, getUserIdsFromMentions } from '../utils/mentions.js';
+
+// GET /api/posts/:postId/comments
+// Supports ?page=N and ?limit=N (defaults to limit=5)
+export const getComments = async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 5;
+    const skip = (page - 1) * limit;
+
+    const comments = await Comment.find({ post: postId })
+      .populate('author', 'username cfHandle rank rating isWingMember isAdmin isCoordinator customTitle')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const total = await Comment.countDocuments({ post: postId });
+
+    res.json({
+      comments,
+      page,
+      pages: Math.ceil(total / limit),
+      total
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error fetching comments' });
+  }
+};
+
+// POST /api/posts/:postId/comments
+// Protected by requireAuth
+export const addComment = async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const { content } = req.body;
+
+    if (typeof content !== 'string' || !content.trim()) {
+      return res.status(400).json({ message: 'Comment content is required.' });
+    }
+
+    const post = await Post.findById(postId);
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found.' });
+    }
+
+    const newComment = new Comment({
+      content: content.trim(),
+      author: req.user.id,
+      post: postId
+    });
+
+    await newComment.save();
+    
+    // Increment author's karma
+    const authorUser = await User.findByIdAndUpdate(req.user.id, { $inc: { karma: 1 } });
+
+    // Handle Mentions
+    const mentionedUsernames = extractUsernames(content);
+    const mentionedIds = await getUserIdsFromMentions(mentionedUsernames);
+    const validIds = mentionedIds.filter(id => id !== req.user.id);
+    if (validIds.length > 0 && authorUser) {
+      const mentions = validIds.map(id => ({
+        recipient: id,
+        sender: req.user.id,
+        type: 'MENTION',
+        message: `${authorUser.username} mentioned you in a comment on: ${post.title}`,
+        link: `/?post=${post._id}`
+      }));
+      await Notification.insertMany(mentions);
+    }
+
+    // Return with populated author so UI updates immediately
+    await newComment.populate('author', 'username cfHandle rank rating isWingMember isAdmin isCoordinator customTitle');
+
+    res.status(201).json({ comment: newComment });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error adding comment' });
+  }
+};
+
+// DELETE /api/comments/:commentId
+// Protected by requireAuth
+// Either author or Wing Member can delete
+export const deleteComment = async (req, res) => {
+  try {
+    const comment = await Comment.findById(req.params.commentId).populate('author');
+    if (!comment) return res.status(404).json({ message: 'Comment not found.' });
+
+    // Permissions check
+    const requestingUser = await User.findById(req.user.id).select('isWingMember isAdmin');
+    const isAuthor = comment.author?._id?.toString() === req.user.id;
+    const isWing = Boolean(requestingUser?.isWingMember || requestingUser?.isAdmin);
+
+
+    if (!isAuthor && !isWing) {
+       return res.status(403).json({ message: 'Unauthorized to delete this comment.' });
+    }
+
+    await Comment.findByIdAndDelete(req.params.commentId);
+    res.json({ message: 'Comment deleted successfully.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error deleting comment' });
+  }
+};
