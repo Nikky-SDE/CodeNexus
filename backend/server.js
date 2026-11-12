@@ -25,7 +25,7 @@ import User from './models/User.js';
 import ArenaMatch from './models/ArenaMatch.js';
 import { getJwtSecret } from './utils/jwt.js';
 import { createRateLimiter } from './middleware/rateLimit.js';
-import { sanitizeScrapedHtml } from './utils/sanitize.js';
+import { sanitizeScrapedHtml, escapeRegex } from './utils/sanitize.js';
 
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -556,15 +556,22 @@ io.on('connection', async (socket) => {
   console.log(`[Socket] ${socket.username} connected (${socket.id})`);
 
   // ── DM Chat ────────────────────────────────────────────────────────────────
-  socket.on('send_message', async ({ recipientUsername, content }) => {
+  socket.on('send_message', async ({ recipientUsername, content } = {}) => {
     try {
-      if (!content?.trim() || !recipientUsername) return;
-      const recipient = await User.findOne({ username: recipientUsername }).select('_id');
+      if (typeof recipientUsername !== 'string' || typeof content !== 'string') return;
+      const trimmedRecipient = recipientUsername.trim();
+      const trimmedContent = content.trim();
+      if (!trimmedRecipient || !trimmedContent) return;
+      if (trimmedRecipient.toLowerCase() === socket.username?.toLowerCase()) return;
+
+      const recipient = await User.findOne({
+        username: { $regex: new RegExp(`^${escapeRegex(trimmedRecipient)}$`, 'i') },
+      }).select('_id');
       if (!recipient) return;
       const message = await Message.create({
         sender: socket.userId,
         recipient: recipient._id,
-        content: content.trim().slice(0, 2000),
+        content: trimmedContent.slice(0, 2000),
       });
       const populated = await message.populate([
         { path: 'sender', select: 'username avatarUrl' },
@@ -583,6 +590,9 @@ io.on('connection', async (socket) => {
     try {
       if (arenaQueue.has(socket.userId)) return; // already queued
 
+      const allowedTimers = [15, 30, 45, 60];
+      const safeTimerMinutes = allowedTimers.includes(Number(timerMinutes)) ? Number(timerMinutes) : 30;
+
       const user = await User.findById(socket.userId).select('username arenaElo rating isVerified cfHandle');
       if (!user) return;
 
@@ -596,13 +606,13 @@ io.on('connection', async (socket) => {
         username: user.username,
         arenaElo: user.arenaElo || 1000,
         cfRating: user.rating || 1200,
-        timerMinutes,
+        timerMinutes: safeTimerMinutes,
       });
 
       socket.emit('arena:queued', { message: 'You are in the queue. Looking for an opponent...' });
       console.log(`[Arena] ${user.username} joined queue (Elo: ${user.arenaElo})`);
 
-      await tryMatchUsers(socket, timerMinutes);
+      await tryMatchUsers(socket, safeTimerMinutes);
     } catch (err) {
       console.error('[Arena] join_queue error:', err);
     }
@@ -616,9 +626,15 @@ io.on('connection', async (socket) => {
   });
 
   // ── Arena: Submit Code ─────────────────────────────────────────────────────
-  socket.on('arena:submit', async ({ matchId, code, language }) => {
+  socket.on('arena:submit', async ({ matchId, code = '', language = 'cpp' } = {}) => {
     try {
-      const match = await ArenaMatch.findOne({ matchId });
+      if (typeof matchId !== 'string' || !matchId.trim()) {
+        return socket.emit('arena:submit_result', { error: 'Invalid match ID.' });
+      }
+      const safeCode = typeof code === 'string' ? code.slice(0, 50000) : '';
+      const safeLanguage = typeof language === 'string' ? language.slice(0, 30) : 'cpp';
+
+      const match = await ArenaMatch.findOne({ matchId: matchId.trim() });
       if (!match || match.status !== 'live') {
         return socket.emit('arena:submit_result', { error: 'Match not active.' });
       }
@@ -649,8 +665,8 @@ io.on('connection', async (socket) => {
       // Save submission
       match.submissions.push({
         user: socket.userId,
-        code,
-        language,
+        code: safeCode,
+        language: safeLanguage,
         verdict: isAC ? 'AC' : mapCFVerdict(verdict),
         submittedAt: new Date(),
         stdout: `Codeforces Submission ID: ${cfResult.id}\nVerdict: ${verdict}`,
@@ -680,9 +696,10 @@ io.on('connection', async (socket) => {
   });
 
   // ── Arena: Forfeit ─────────────────────────────────────────────────────────
-  socket.on('arena:forfeit', async ({ matchId }) => {
+  socket.on('arena:forfeit', async ({ matchId } = {}) => {
     try {
-      const match = await ArenaMatch.findOne({ matchId });
+      if (typeof matchId !== 'string' || !matchId.trim()) return;
+      const match = await ArenaMatch.findOne({ matchId: matchId.trim() });
       if (!match || match.status !== 'live') return;
       const isUser1 = match.user1.toString() === socket.userId;
       if (!isUser1 && match.user2.toString() !== socket.userId) return;

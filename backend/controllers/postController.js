@@ -80,7 +80,7 @@ export const createPost = async (req, res) => {
         sender: req.user.id,
         type: 'ANNOUNCEMENT',
         message: `${authorUser.username} made a new announcement: ${post.title}`,
-        link: `/?post=${post._id}`
+        link: `/post/${post._id}`
       }));
       if (notifications.length > 0) {
         await Notification.insertMany(notifications);
@@ -96,7 +96,7 @@ export const createPost = async (req, res) => {
         sender: req.user.id,
         type: 'MENTION',
         message: `${authorUser.username} mentioned you in a post: ${post.title}`,
-        link: `/?post=${post._id}`
+        link: `/post/${post._id}`
       }));
       if (notifications.length > 0) {
         await Notification.insertMany(notifications);

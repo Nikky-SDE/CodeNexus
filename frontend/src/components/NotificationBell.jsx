@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { API_BASE } from '../apiConfig';
+import { navigate } from '../utils/navigation.js';
 
 export default function NotificationBell() {
   const [notifications, setNotifications] = useState([]);
@@ -46,7 +47,7 @@ export default function NotificationBell() {
         credentials: 'include' 
       });
       setNotifications(prev => prev.map(n => n._id === id ? { ...n, isRead: true } : n));
-      if (link) window.location.assign(link);
+      if (link) { setIsOpen(false); navigate(link); }
     } catch (err) {
       console.error('Failed to mark read', err);
     }

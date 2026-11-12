@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { API_BASE } from '../apiConfig.js';
 import Navbar from '../components/Navbar.jsx';
+import { navigate } from '../utils/navigation.js';
 
 const LANGUAGES = [
   { id: 'cpp',        label: 'C++17',      judge0Id: 54, placeholder: '#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    cout << "Hello, CodeNexus!" << endl;\n    return 0;\n}' },
@@ -31,10 +32,10 @@ export default function PlaygroundPage() {
         if (d?.isAuthenticated) {
           setCurrentUser(d.user);
         } else {
-          window.location.href = '/auth';
+          navigate(`/auth?next=${encodeURIComponent(window.location.pathname + window.location.search)}`, { replace: true });
         }
       })
-      .catch(() => window.location.href = '/auth');
+      .catch(() => navigate(`/auth?next=${encodeURIComponent(window.location.pathname + window.location.search)}`, { replace: true }));
   }, []);
 
   const editorRef = useRef(null);

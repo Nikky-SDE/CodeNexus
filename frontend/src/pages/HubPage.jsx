@@ -5,6 +5,7 @@ import { API_BASE } from '../apiConfig';
 import NotificationBell from '../components/NotificationBell.jsx';
 import ProblemOfTheDayWidget from '../components/ProblemOfTheDayWidget.jsx';
 import Navbar from '../components/Navbar.jsx';
+import { navigate } from '../utils/navigation.js';
 
 const TABS = [
   { key: 'all',      label: 'All',      emoji: '🌐' },
@@ -434,6 +435,7 @@ export default function HubPage() {
   const [activeTab, setActiveTab]   = useState('all');
   const [posts, setPosts]           = useState([]);
   const [loading, setLoading]       = useState(true);
+  const [fetchError, setFetchError] = useState('');
   const [showModal, setShowModal]   = useState(false);
   const [searchQuery, setSearch]    = useState('');
   const [user, setUser]             = useState(null);
@@ -450,13 +452,14 @@ export default function HubPage() {
     const params = new URLSearchParams(window.location.search);
     const postId = params.get('post');
     if (postId) {
-      window.location.href = `/post/${postId}`;
+      navigate(`/post/${postId}`, { replace: true });
     }
   }, []);
 
 
   const fetchPosts = useCallback(async () => {
     setLoading(true);
+    setFetchError('');
     try {
       const url = activeTab === 'all'
         ? `${API_BASE}/api/posts`
@@ -464,10 +467,11 @@ export default function HubPage() {
       const res  = await fetch(url, { credentials: 'include' });
       if (!res.ok) throw new Error('Failed to fetch');
       const data = await res.json();
-      setPosts(data.posts?.length ? data.posts : MOCK_POSTS);
+      setPosts(Array.isArray(data.posts) ? data.posts : []);
     } catch {
       // Fall back to mock data if backend not ready
-      setPosts(MOCK_POSTS);
+      setPosts([]);
+      setFetchError('Unable to load community posts right now.');
     } finally {
       setLoading(false);
     }
@@ -551,6 +555,14 @@ export default function HubPage() {
             <div className="flex flex-col gap-3">
               {loading ? (
                 Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
+              ) : fetchError ? (
+                <div className="card p-10 text-center border-red-500/20">
+                  <div className="text-4xl mb-3">⚠️</div>
+                  <p className="text-red-400 font-semibold">{fetchError}</p>
+                  <button onClick={fetchPosts} className="btn-primary text-xs px-5 py-2 mt-4">Retry</button>
+                </div>
+              ) : filtered.length === 0 ? (
+                Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
               ) : filtered.length === 0 ? (
                 <div className="py-16 text-center">
                   <div className="text-5xl mb-3">🔍</div>
@@ -558,13 +570,13 @@ export default function HubPage() {
                   <p className="text-slate-600 text-sm mt-1">Be the first to post in this category!</p>
                 </div>
               ) : (
-                filtered.map(post => <PostCard key={post._id} post={post} currentUser={user} />)
+                filtered.map(post => <PostCard key={post._id} post={post} currentUser={user} onDeleted={(id) => setPosts(prev => prev.filter(p => p._id !== id))} />)
               )}
             </div>
           </div>
 
           {/* ── Clean Sidebar ── */}
-          <aside className="hidden lg:flex flex-col gap-6 w-[340px] flex-shrink-0">
+          <aside className="flex flex-col gap-6 w-full lg:w-[340px] flex-shrink-0">
             
             {/* My Profile Overview */}
             {user ? (
@@ -597,7 +609,7 @@ export default function HubPage() {
               <div className="grid grid-cols-2 gap-3">
                 {[
                   { label: 'Active Posts', value: posts.length },
-                  { label: 'Network', value: 'Stable' },
+                  { label: 'Unique Authors', value: new Set(posts.map(p => p.author?.username).filter(Boolean)).size },
                 ].map(s => (
                   <div key={s.label} className="bg-white dark:bg-black/20 rounded-xl p-3 text-center shadow-sm dark:shadow-none border border-black/5 dark:border-white/5">
                     <div className="text-xl font-black text-slate-800 dark:text-slate-100 font-mono tracking-tight">{s.value}</div>

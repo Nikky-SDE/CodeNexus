@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { GoogleLogin } from '@react-oauth/google';
 import { API_BASE } from '../apiConfig';
 import BrandLogo from '../components/BrandLogo.jsx';
+import { navigate, getSafeNextPath, emitAuthChange } from '../utils/navigation.js';
 
 export default function AuthPage() {
   const [mode, setMode] = useState('login'); // 'login' | 'register'
@@ -10,6 +11,21 @@ export default function AuthPage() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+
+  const nextTarget = typeof window !== 'undefined'
+    ? getSafeNextPath(new URLSearchParams(window.location.search).get('next'), '/hub')
+    : '/hub';
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/auth/verify`, { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => {
+        if (d?.isAuthenticated) {
+          navigate(nextTarget, { replace: true });
+        }
+      })
+      .catch(() => {});
+  }, [nextTarget]);
 
   const resetFormState = () => {
     setForm({ username: '', cfHandle: '', email: '', password: '' });
@@ -33,11 +49,12 @@ export default function AuthPage() {
       const data = await res.json();
 
       if (res.ok) {
-        window.location.href = '/';
+        emitAuthChange();
+        navigate(nextTarget, { replace: true });
       } else {
         setError(data.message || 'Google authentication failed.');
       }
-    } catch (err) {
+    } catch {
       setError('Could not connect to the server.');
     } finally {
       setLoading(false);
@@ -49,13 +66,27 @@ export default function AuthPage() {
     setError('');
     setMessage('');
 
-    if (mode === 'login' && (!form.username || !form.password)) {
+    if (mode === 'login' && (!form.username.trim() || !form.password)) {
       setError('Username and password are required.');
       return;
     }
     if (mode === 'register') {
-      if (!form.username || !form.password || !form.email) {
+      const trimmedUser = form.username.trim();
+      const trimmedEmail = form.email.trim();
+      if (!trimmedUser || !form.password || !trimmedEmail) {
         setError('Username, email, and password are required.');
+        return;
+      }
+      if (!/^[a-zA-Z0-9_.-]{3,30}$/.test(trimmedUser)) {
+        setError('Username must be 3-30 characters (letters, numbers, _, ., -).');
+        return;
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+        setError('Please enter a valid email address.');
+        return;
+      }
+      if (form.password.length < 8) {
+        setError('Password must be at least 8 characters long.');
         return;
       }
     }
@@ -90,17 +121,19 @@ export default function AuthPage() {
 
       if (res.ok) {
         if (mode === 'login') {
-          window.location.href = '/';
+          emitAuthChange();
+          navigate(nextTarget, { replace: true });
         } else if (mode === 'register') {
-          // On standard register, you could auto-login, but currently it just returns 201
+          const registeredUsername = form.username.trim();
+          setForm({ username: registeredUsername, cfHandle: '', email: '', password: '' });
+          setError('');
           setMessage('Account created successfully. You can now log in.');
           setMode('login');
-          resetFormState();
         }
       } else {
         setError(data.message || 'Authentication failed.');
       }
-    } catch (err) {
+    } catch {
       setError('Could not connect to the server.');
     } finally {
       setLoading(false);
@@ -121,7 +154,7 @@ export default function AuthPage() {
         <a href="/" className="flex items-center gap-2" aria-label="CodeNexus Home">
           <BrandLogo size="md" />
         </a>
-        <a href="/" className="text-sm text-slate-400 hover:text-slate-200 transition-colors">
+        <a href="/hub" className="text-sm text-slate-400 hover:text-slate-200 transition-colors">
           ← Back to Hub
         </a>
       </nav>

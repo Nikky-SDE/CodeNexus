@@ -1,6 +1,7 @@
 import { cfRankColor } from '../utils/cfRank.js';
 import { useState } from 'react';
 import { API_BASE } from '../apiConfig';
+import { navigate } from '../utils/navigation.js';
 
 /* ── Utilities ── */
 function timeAgo(dateStr) {
@@ -44,7 +45,7 @@ function Avatar({ username, rank, isWingMember, size = 9 }) {
 /* ─────────────────────────────────────────
    PostCard — Twitter / X inspired design
    ───────────────────────────────────────── */
-export default function PostCard({ post, currentUser }) {
+export default function PostCard({ post, currentUser, onDeleted }) {
   const cat    = CAT[post.category] || CAT.General;
   const rank   = post.author?.rank || '';
   const color  = cfRankColor(rank);
@@ -52,7 +53,7 @@ export default function PostCard({ post, currentUser }) {
   const isCoordinator = post.author?.isCoordinator === true;
 
   const [upvoteCount, setUpvoteCount] = useState(post.upvotes?.length ?? 0);
-  const [upvoted, setUpvoted]         = useState(false);
+  const [upvoted, setUpvoted]         = useState(() => Boolean(currentUser?.id && (post.upvotes || []).some(id => String(id?._id || id) === String(currentUser.id))));
   const [upvoteAnim, setUpvoteAnim]   = useState(false);
 
   const handleUpvote = async (e) => {
@@ -88,7 +89,7 @@ export default function PostCard({ post, currentUser }) {
         method: 'DELETE', credentials: 'include',
       });
       if (res.ok) {
-        window.location.reload(); // Simple way to refresh the list
+        if (onDeleted) onDeleted(post._id); else window.location.reload();
       } else {
         alert('Failed to delete post.');
       }
@@ -104,8 +105,8 @@ export default function PostCard({ post, currentUser }) {
 
   return (
     <article
-      onClick={() => window.location.href = post.isEditorial ? `/editorial/${post._id}` : `/post/${post._id}`}
-      onKeyDown={e => e.key === 'Enter' && (window.location.href = post.isEditorial ? `/editorial/${post._id}` : `/post/${post._id}`)}
+      onClick={() => navigate(post.isEditorial ? `/editorial/${post._id}` : `/post/${post._id}`)}
+      onKeyDown={e => e.key === 'Enter' && navigate(post.isEditorial ? `/editorial/${post._id}` : `/post/${post._id}`)}
       tabIndex={0}
       role="button"
       aria-label={`Open post: ${post.title}`}

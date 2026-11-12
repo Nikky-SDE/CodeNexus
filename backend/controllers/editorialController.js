@@ -26,7 +26,7 @@ export const createEditorial = async (req, res) => {
 
     // Sanitise hints: filter empty strings
     const cleanHints = Array.isArray(hints)
-      ? hints.map(h => h.trim()).filter(Boolean)
+      ? hints.filter(h => typeof h === 'string').map(h => h.trim()).filter(Boolean)
       : [];
 
     const post = new Post({
@@ -55,7 +55,7 @@ export const createEditorial = async (req, res) => {
         sender: req.user.id,
         type: 'NEW_EDITORIAL',
         message: `${authorUser.username} posted a new editorial: ${post.title}`,
-        link: `/editorials?id=${post._id}`
+        link: `/editorial/${post._id}`
       }));
       await Notification.insertMany(notifications);
     }
@@ -70,7 +70,7 @@ export const createEditorial = async (req, res) => {
         sender: req.user.id,
         type: 'MENTION',
         message: `${authorUser.username} mentioned you in an editorial: ${post.title}`,
-        link: `/editorials?id=${post._id}`
+        link: `/editorial/${post._id}`
       }));
       await Notification.insertMany(mentions);
     }

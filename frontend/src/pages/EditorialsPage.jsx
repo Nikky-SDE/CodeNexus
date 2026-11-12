@@ -3,6 +3,7 @@ import MarkdownRenderer from '../components/MarkdownRenderer.jsx';
 import { cfRankColor } from '../utils/cfRank.js';
 import { API_BASE } from '../apiConfig';
 import Navbar from '../components/Navbar.jsx';
+import { navigate } from '../utils/navigation.js';
 
 /* ── Shared helpers ── */
 function timeAgo(dateStr) {
@@ -130,7 +131,7 @@ function EditorialCard({ post, currentUser }) {
       {/* ── Header (clickable) ── */}
       <button
         className="w-full text-left p-5 flex flex-col gap-3"
-        onClick={() => window.location.href = `/editorial/${post._id}`}
+        onClick={() => navigate(`/editorial/${post._id}`)}
       >
         {/* Badges row */}
         <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -249,6 +250,7 @@ export default function EditorialsPage() {
   const [search, setSearch]         = useState('');
   const [catFilter, setCatFilter]   = useState('all');
   const [currentUser, setCurrentUser] = useState(null);
+  const [fetchError, setFetchError]   = useState('');
 
   useEffect(() => {
     fetch(`${API_BASE}/api/auth/verify`, { credentials: 'include' })
@@ -262,17 +264,17 @@ export default function EditorialsPage() {
     fetch(`${API_BASE}/api/editorials`, { credentials: 'include' })
       .then(r => r.ok ? r.json() : Promise.reject())
       .then(d => {
-        const fetched = d.posts?.length ? d.posts : MOCK_EDITORIALS;
+        const fetched = Array.isArray(d.posts) ? d.posts : [];
         setEditorials(fetched);
         
         // Handle auto-expand from URL
         const params = new URLSearchParams(window.location.search);
         const linkedId = params.get('id');
         if (linkedId) {
-          window.location.href = `/editorial/${linkedId}`;
+          navigate(`/editorial/${linkedId}`, { replace: true });
         }
       })
-      .catch(() => setEditorials(MOCK_EDITORIALS))
+      .catch(() => { setEditorials([]); setFetchError('Unable to load editorials right now.'); })
       .finally(() => setLoading(false));
   }, []);
 
@@ -353,6 +355,14 @@ export default function EditorialsPage() {
             <div className="flex flex-col gap-4">
               {loading ? (
                 Array.from({ length: 3 }).map((_, i) => <SkeletonEditorial key={i} />)
+              ) : fetchError ? (
+                <div className="card p-10 text-center border-red-500/20">
+                  <div className="text-4xl mb-3">⚠️</div>
+                  <p className="text-red-400 font-medium">{fetchError}</p>
+                  <button onClick={() => window.location.reload()} className="btn-primary text-xs px-5 py-2 mt-4">Retry</button>
+                </div>
+              ) : filtered.length === 0 ? (
+                Array.from({ length: 3 }).map((_, i) => <SkeletonEditorial key={i} />)
               ) : filtered.length === 0 ? (
                 <div className="card p-12 text-center">
                   <div className="text-4xl mb-3">📖</div>
@@ -368,7 +378,7 @@ export default function EditorialsPage() {
           </div>
 
           {/* ── Sidebar ── */}
-          <aside className="hidden lg:flex flex-col gap-4 w-64 flex-shrink-0">
+          <aside className="flex flex-col gap-4 w-full lg:w-64 flex-shrink-0">
 
             {/* Stats */}
             <div className="card-editorial p-4">

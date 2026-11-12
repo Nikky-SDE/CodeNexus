@@ -6,6 +6,7 @@ import MentionsTextarea from '../components/MentionsTextarea';
 import GlobalSearch from '../components/GlobalSearch';
 import NotificationBell from '../components/NotificationBell';
 import Navbar from '../components/Navbar';
+import { navigate, goBack } from '../utils/navigation.js';
 
 const CATEGORY_META = {
   Insight: { label: 'Insight', emoji: '💡', color: 'text-yellow-400', border: 'border-yellow-500/40', bg: 'bg-yellow-400/10' },
@@ -217,7 +218,7 @@ export default function PostPage() {
         credentials: 'include'
       });
       if (res.ok) {
-        window.location.href = post.isEditorial ? '/editorials' : '/';
+        navigate(post.isEditorial ? '/editorials' : '/hub', { replace: true });
       }
     } catch (err) {
       console.error(err);
@@ -242,7 +243,7 @@ export default function PostPage() {
           <div className="text-5xl mb-4">😕</div>
           <h2 className="text-xl font-bold text-slate-100 mb-2">Not Found</h2>
           <p className="text-slate-500 text-sm mb-4">{error}</p>
-          <button onClick={() => window.history.back()} className="btn-primary text-sm">Go Back</button>
+          <button onClick={() => goBack(isEditorialRoute ? '/editorials' : '/hub')} className="btn-primary text-sm">Go Back</button>
         </div>
       </div>
     );
@@ -271,7 +272,7 @@ export default function PostPage() {
       <Navbar user={currentUser} middle={<GlobalSearch />} />
 
       <main className="relative z-10 flex-1 max-w-3xl w-full mx-auto px-4 py-8">
-        <button onClick={() => window.history.back()} className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-white transition-colors">
+        <button onClick={() => goBack(isEditorialRoute ? '/editorials' : '/hub')} className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-white transition-colors">
           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M19 12H5M12 19l-7-7 7-7" />
           </svg>

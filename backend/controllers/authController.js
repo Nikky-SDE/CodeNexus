@@ -1,12 +1,44 @@
 import User from '../models/User.js';
-import OTP from '../models/OTP.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { OAuth2Client } from 'google-auth-library';
 import { getJwtSecret } from '../utils/jwt.js';
+import { escapeRegex } from '../utils/sanitize.js';
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const googleClient = CLIENT_ID ? new OAuth2Client(CLIENT_ID) : null;
+
+function getAuthCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+  };
+}
+
+/**
+ * Serializes user fields required by frontend navigation, profile widgets, and Arena.
+ */
+export function serializeAuthUser(user) {
+  return {
+    id: user._id,
+    username: user.username,
+    cfHandle: user.cfHandle,
+    isVerified: user.isVerified,
+    isAdmin: user.isAdmin,
+    isCoordinator: user.isCoordinator,
+    isWingMember: user.isWingMember,
+    customTitle: user.customTitle,
+    rating: user.rating,
+    rank: user.rank,
+    karma: user.karma ?? 0,
+    avatarUrl: user.avatarUrl || '',
+    arenaElo: user.arenaElo ?? 1000,
+    arenaWins: user.arenaWins ?? 0,
+    arenaLosses: user.arenaLosses ?? 0,
+    arenaDraws: user.arenaDraws ?? 0,
+  };
+}
 
 // Google Auth Login/Signup
 export const googleAuth = async (req, res) => {
@@ -29,11 +61,10 @@ export const googleAuth = async (req, res) => {
     let user = await User.findOne({ $or: [{ googleId }, { email }] });
 
     if (!user) {
-      // Create new user. Use a modified name for username, ensuring uniqueness
-      let baseUsername = name.replace(/\s+/g, '').toLowerCase() || email.split('@')[0];
+      const baseUsername = (name || email.split('@')[0]).replace(/[^a-zA-Z0-9_.-]/g, '').toLowerCase() || 'coder';
       let username = baseUsername;
       let counter = 1;
-      while (await User.findOne({ username })) {
+      while (await User.findOne({ username: { $regex: new RegExp(`^${escapeRegex(username)}$`, 'i') } })) {
         username = `${baseUsername}${counter}`;
         counter++;
       }
@@ -43,11 +74,9 @@ export const googleAuth = async (req, res) => {
         email,
         googleId,
         avatarUrl: picture,
-        // No password for Google signups
       });
       await user.save();
     } else if (!user.googleId) {
-      // Link Google account to existing email account
       user.googleId = googleId;
       if (!user.avatarUrl) user.avatarUrl = picture;
       await user.save();
@@ -60,20 +89,18 @@ export const googleAuth = async (req, res) => {
     );
 
     res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      ...getAuthCookieOptions(),
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    res.json({ message: 'Google login successful', user: { id: user._id, username: user.username, cfHandle: user.cfHandle, isVerified: user.isVerified, isAdmin: user.isAdmin, isCoordinator: user.isCoordinator, customTitle: user.customTitle } });
+    res.json({ message: 'Google login successful', user: serializeAuthUser(user) });
   } catch (error) {
     console.error('Google Auth Error:', error);
     res.status(500).json({ message: 'Server error during Google authentication' });
   }
 };
 
-// Standard Register User (Simplified, no OTP)
+// Standard Register User
 export const registerUser = async (req, res) => {
   try {
     const { username, password, cfHandle, email } = req.body;
@@ -93,7 +120,12 @@ export const registerUser = async (req, res) => {
       return res.status(400).json({ message: 'Password must be at least 8 characters long.' });
     }
 
-    const existingUser = await User.findOne({ $or: [{ username: cleanUsername }, { email: cleanEmail }] });
+    const existingUser = await User.findOne({
+      $or: [
+        { username: { $regex: new RegExp(`^${escapeRegex(cleanUsername)}$`, 'i') } },
+        { email: cleanEmail },
+      ],
+    });
     if (existingUser) {
       return res.status(400).json({ message: 'Username or email already taken' });
     }
@@ -105,13 +137,16 @@ export const registerUser = async (req, res) => {
       username: cleanUsername,
       email: cleanEmail,
       password: hashedPassword,
-      cfHandle: typeof cfHandle === 'string' ? cfHandle.trim() : undefined,
+      cfHandle: typeof cfHandle === 'string' && cfHandle.trim() ? cfHandle.trim() : undefined,
     });
 
     await newUser.save();
 
     res.status(201).json({ message: 'User registered successfully' });
   } catch (error) {
+    if (error?.code === 11000) {
+      return res.status(400).json({ message: 'Username or email already taken' });
+    }
     console.error(error);
     res.status(500).json({ message: 'Server error' });
   }
@@ -130,6 +165,9 @@ export const loginUser = async (req, res) => {
     if (!user) {
       return res.status(400).json({ message: 'Invalid credentials' });
     }
+    if (!user.password) {
+      return res.status(400).json({ message: 'This account uses Google Sign-In. Please continue with Google.' });
+    }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
@@ -143,13 +181,11 @@ export const loginUser = async (req, res) => {
     );
 
     res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      ...getAuthCookieOptions(),
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    res.json({ message: 'Logged in successfully', user: { id: user._id, username: user.username, cfHandle: user.cfHandle, isVerified: user.isVerified, isAdmin: user.isAdmin, isCoordinator: user.isCoordinator, customTitle: user.customTitle } });
+    res.json({ message: 'Logged in successfully', user: serializeAuthUser(user) });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error' });
@@ -158,11 +194,11 @@ export const loginUser = async (req, res) => {
 
 // Logout User
 export const logoutUser = (req, res) => {
-  res.clearCookie('token');
+  res.clearCookie('token', getAuthCookieOptions());
   res.json({ message: 'Logged out successfully' });
 };
 
-// Verify User Session Mapping (Middleware basically but acting as a route to get current user)
+// Verify User Session Mapping
 export const verifySession = async (req, res) => {
   const token = req.cookies.token;
   if (!token) {
@@ -175,8 +211,8 @@ export const verifySession = async (req, res) => {
     if (!user) {
       return res.status(200).json({ isAuthenticated: false });
     }
-    res.json({ isAuthenticated: true, user: { id: user._id, username: user.username, cfHandle: user.cfHandle, isVerified: user.isVerified, isAdmin: user.isAdmin, isCoordinator: user.isCoordinator, customTitle: user.customTitle } });
-  } catch (err) {
+    res.json({ isAuthenticated: true, user: serializeAuthUser(user) });
+  } catch {
     return res.status(200).json({ isAuthenticated: false });
   }
 };
@@ -197,7 +233,6 @@ export const changePassword = async (req, res) => {
       return res.status(400).json({ message: 'New password must be at least 8 characters long' });
     }
 
-    // If user has a password, verify currentPassword
     if (user.password) {
       if (typeof currentPassword !== 'string' || !currentPassword) {
         return res.status(400).json({ message: 'Current password is required' });

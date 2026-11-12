@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { API_BASE } from '../apiConfig';
 import Navbar from '../components/Navbar';
 
 export default function RecommenderPage() {
+    const [currentUser, setCurrentUser] = useState(null);
     const [handlesInput, setHandlesInput] = useState('');
     const [minRating, setMinRating] = useState(800);
     const [maxRating, setMaxRating] = useState(1200);
@@ -24,8 +25,9 @@ export default function RecommenderPage() {
         fetch(`${API_BASE}/api/auth/verify`, { credentials: 'include' })
             .then(res => res.ok ? res.json() : null)
             .then(data => {
-                if (data?.isAuthenticated && data.user?.cfHandle) {
-                    setHandlesInput(data.user.cfHandle);
+                if (data?.isAuthenticated) {
+                    setCurrentUser(data.user);
+                    if (data.user?.cfHandle) setHandlesInput(data.user.cfHandle);
                 }
             })
             .catch(() => {});
@@ -167,7 +169,7 @@ export default function RecommenderPage() {
                 }} />
             </div>
 
-            <Navbar />
+            <Navbar user={currentUser} />
 
             <main className="relative z-10 max-w-4xl mx-auto px-6 py-12">
                 <div className="text-center mb-10">

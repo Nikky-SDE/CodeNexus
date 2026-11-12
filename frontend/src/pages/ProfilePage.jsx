@@ -4,6 +4,7 @@ import { cfRankColor } from '../utils/cfRank.js';
 import GlobalSearch from '../components/GlobalSearch';
 import NotificationBell from '../components/NotificationBell';
 import Navbar from '../components/Navbar';
+import { navigate, emitAuthChange } from '../utils/navigation.js';
 
 function timeAgo(dateStr) {
   const diff = (Date.now() - new Date(dateStr)) / 1000;
@@ -362,7 +363,7 @@ export default function ProfilePage() {
                           {stats?.isFollowing ? 'Following' : 'Follow'}
                         </button>
                         <button
-                          onClick={() => window.dispatchEvent(new CustomEvent('open-chat', { detail: { username: user.username, avatarUrl: user.avatarUrl, rank: cfStats.rank || user.rank } }))}
+                          onClick={() => navigate(`/messages?to=${encodeURIComponent(user.username)}`)}
                           className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl text-sm font-bold border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 transition-all flex items-center justify-center gap-2 shadow-sm"
                         >
                           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -801,7 +802,8 @@ function ChangeUsernameModal({ onClose, currentUsername }) {
         setSuccess(true);
         // Redirect to the new profile URL after a short delay
         setTimeout(() => {
-          window.location.href = `/profile/${data.username}`;
+          emitAuthChange();
+          navigate(`/profile/${encodeURIComponent(data.username)}`, { replace: true });
         }, 1500);
       } else {
         setError(data.message || 'Failed to update username.');

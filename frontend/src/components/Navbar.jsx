@@ -3,6 +3,7 @@ import SideMenu from './SideMenu.jsx';
 import NotificationBell from './NotificationBell.jsx';
 import { API_BASE } from '../apiConfig.js';
 import BrandLogo from './BrandLogo.jsx';
+import { navigate, emitAuthChange } from '../utils/navigation.js';
 
 /**
  * Navbar Component
@@ -28,7 +29,16 @@ export default function Navbar({ user, searchQuery, onSearchChange, placeholder 
   const handleLogout = async () => {
     try {
       await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST', credentials: 'include' });
-      window.location.reload();
+      emitAuthChange();
+      const protectedPaths = ['/arena', '/messages', '/playground', '/admin', '/create-editorial'];
+      const currentPath = window.location.pathname.length > 1
+        ? window.location.pathname.replace(/\/+$/, '')
+        : window.location.pathname;
+      if (protectedPaths.includes(currentPath)) {
+        navigate('/hub', { replace: true });
+      } else {
+        window.location.reload();
+      }
     } catch (err) {
       console.error('Logout failed:', err);
     }
@@ -122,7 +132,7 @@ export default function Navbar({ user, searchQuery, onSearchChange, placeholder 
                 </a>
                 <button
                   onClick={handleLogout}
-                  className="p-2 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-500/10 transition-all hidden sm:flex"
+                  className="p-2 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-500/10 transition-all flex"
                   title="Logout"
                 >
                   <svg className="w-4.5 h-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>

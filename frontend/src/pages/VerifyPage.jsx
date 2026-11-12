@@ -85,7 +85,7 @@ export default function VerifyPage() {
       {/* Nav */}
       <nav className="w-full max-w-lg mb-10 flex items-center justify-between relative z-10">
         <a href="/" className="flex items-center gap-2" aria-label="CodeNexus Home"><BrandLogo size="md" /></a>
-        <a href="/" className="text-sm text-slate-400 hover:text-slate-200 transition-colors">
+        <a href="/hub" className="text-sm text-slate-400 hover:text-slate-200 transition-colors">
           ← Back to Hub
         </a>
       </nav>
@@ -207,7 +207,7 @@ export default function VerifyPage() {
                     </div>
                   ))}
                 </div>
-                <a href="/" className="btn-primary w-full flex items-center justify-center gap-2 mt-3 text-sm py-2.5">
+                <a href="/hub" className="btn-primary w-full flex items-center justify-center gap-2 mt-3 text-sm py-2.5">
                   Go to Hub →
                 </a>
               </div>
@@ -240,7 +240,7 @@ export default function VerifyPage() {
 
         <p className="text-center text-sm text-slate-600 mt-5">
           Already verified?{' '}
-          <a href="/" className="text-accent hover:text-accent-violet transition-colors font-medium">
+          <a href="/hub" className="text-accent hover:text-accent-violet transition-colors font-medium">
             Back to Hub
           </a>
         </p>

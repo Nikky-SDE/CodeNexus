@@ -1,5 +1,4 @@
 import cron from 'node-cron';
-import fetch from 'node-fetch';
 import User from '../models/User.js';
 
 const CF_API = 'https://codeforces.com/api';
@@ -11,7 +10,7 @@ const CF_API = 'https://codeforces.com/api';
  */
 async function fetchCfProfiles(handles) {
   const url = `${CF_API}/user.info?handles=${handles.map(h => encodeURIComponent(h)).join(';')}`;
-  const res  = await fetch(url, { timeout: 15_000 });
+  const res  = await fetch(url, { signal: AbortSignal.timeout(15_000) });
   const data = await res.json();
 
   if (data.status !== 'OK') throw new Error(`CF API error: ${data.comment}`);

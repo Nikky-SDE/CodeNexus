@@ -3,6 +3,7 @@ import { io } from 'socket.io-client';
 import { API_BASE } from '../apiConfig';
 import Navbar from '../components/Navbar';
 import GlobalSearch from '../components/GlobalSearch';
+import { navigate } from '../utils/navigation.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const cfRankColor = (rank = '') => {
@@ -87,10 +88,9 @@ export default function MessagesPage() {
   useEffect(() => {
     fetch(`${API_BASE}/api/auth/verify`, { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.isAuthenticated) setCurrentUser(d.user); else window.location.href = '/auth'; })
-      .catch(() => window.location.href = '/auth');
+      .then(d => { if (d?.isAuthenticated) setCurrentUser(d.user); else navigate(`/auth?next=${encodeURIComponent(window.location.pathname + window.location.search)}`, { replace: true }); })
+      .catch(() => navigate(`/auth?next=${encodeURIComponent(window.location.pathname + window.location.search)}`, { replace: true }));
   }, []);
-
   // Socket logic
   useEffect(() => {
     if (!currentUser) return;
@@ -195,6 +195,29 @@ export default function MessagesPage() {
       setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, []);
+
+  // Open ?to=username thread automatically if navigated from a user profile
+  const initialToHandledRef = useRef(false);
+  useEffect(() => {
+    if (!currentUser || loadingConvs || initialToHandledRef.current) return;
+    const toUser = new URLSearchParams(window.location.search).get('to');
+    if (!toUser) return;
+    initialToHandledRef.current = true;
+    if (toUser.toLowerCase() === currentUser.username?.toLowerCase()) return;
+    const existing = conversations.find(c => c.username?.toLowerCase() === toUser.toLowerCase());
+    if (existing) {
+      openThread(existing);
+      return;
+    }
+    fetch(`${API_BASE}/api/users/${encodeURIComponent(toUser)}`, { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => {
+        if (d?.user) {
+          openThread({ userId: d.user._id, username: d.user.username, avatarUrl: d.user.avatarUrl, rank: d.user.rank });
+        }
+      })
+      .catch(() => {});
+  }, [currentUser, loadingConvs, conversations, openThread]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

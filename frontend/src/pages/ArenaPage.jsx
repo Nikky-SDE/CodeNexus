@@ -4,6 +4,7 @@ import MatchView from '../components/arena/MatchView.jsx';
 import { API_BASE } from '../apiConfig.js';
 import NotificationBell from '../components/NotificationBell.jsx';
 import Navbar from '../components/Navbar.jsx';
+import { navigate } from '../utils/navigation.js';
 
 const MATCH_TIMERS = [
   { label: '15 min', value: 15 },
@@ -92,10 +93,10 @@ export default function ArenaPage() {
         if (d?.isAuthenticated) {
           setCurrentUser(d.user);
         } else {
-          window.location.href = '/auth';
+          navigate(`/auth?next=${encodeURIComponent(window.location.pathname + window.location.search)}`, { replace: true });
         }
       })
-      .catch(() => window.location.href = '/auth');
+      .catch(() => navigate(`/auth?next=${encodeURIComponent(window.location.pathname + window.location.search)}`, { replace: true }));
   }, []);
 
   // ── Leaderboard ─────────────────────────────────────────────────────────────

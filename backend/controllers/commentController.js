@@ -70,7 +70,7 @@ export const addComment = async (req, res) => {
         sender: req.user.id,
         type: 'MENTION',
         message: `${authorUser.username} mentioned you in a comment on: ${post.title}`,
-        link: `/?post=${post._id}`
+        link: post.isEditorial ? `/editorial/${post._id}` : `/post/${post._id}`
       }));
       await Notification.insertMany(mentions);
     }

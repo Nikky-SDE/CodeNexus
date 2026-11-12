@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { API_BASE } from '../apiConfig.js';
 import Navbar from '../components/Navbar.jsx';
 
 export default function AiHintsPage() {
+  const [currentUser, setCurrentUser] = useState(null);
   const [problemUrl, setProblemUrl] = useState('');
   const [apiKey] = useState(() => localStorage.getItem('geminiApiKey') || '');
   const [loading, setLoading] = useState(false);
@@ -12,6 +13,15 @@ export default function AiHintsPage() {
   const [hintsData, setHintsData] = useState(null);
   const [currentHintIndex, setCurrentHintIndex] = useState(-1);
   const [showEditorial, setShowEditorial] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/auth/verify`, { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.isAuthenticated) setCurrentUser(d.user);
+      })
+      .catch(() => {});
+  }, []);
 
 
   const handleGenerate = async (e) => {
@@ -69,7 +79,7 @@ export default function AiHintsPage() {
       </div>
 
       {/* Navbar */}
-      <Navbar />
+      <Navbar user={currentUser} />
 
       <main className="relative z-10 flex-1 max-w-4xl mx-auto w-full px-6 py-8">
         {!apiKey && (

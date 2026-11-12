@@ -428,7 +428,7 @@ function ContestDetailModal({ contest, currentUser, isAdmin, onClose, onUnlink, 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {items.map(p => (
                 <div key={p._id} className="flex flex-col p-5 rounded-2xl border border-white/[0.06] hover:border-accent/30 bg-bg-surface hover:bg-white/[0.04] transition-all duration-300 group relative">
-                  <a href={p.isEditorial ? `/editorials?id=${p._id}` : `/?post=${p._id}`} className="text-sm font-bold text-slate-200 group-hover:text-accent transition-colors line-clamp-2 mb-3 pr-8 leading-snug">
+                  <a href={p.isEditorial ? `/editorial/${p._id}` : `/post/${p._id}`} className="text-sm font-bold text-slate-200 group-hover:text-accent transition-colors line-clamp-2 mb-3 pr-8 leading-snug">
                     {p.title}
                   </a>
                   <div className="mt-auto flex items-center justify-between">
@@ -460,7 +460,7 @@ export default function ContestsPage() {
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
 
-  const isAdmin = !!currentUser;
+  const isAdmin = Boolean(currentUser?.isAdmin);
 
   useEffect(() => {
     fetch(`${API_BASE}/api/auth/verify`, { credentials: 'include' })

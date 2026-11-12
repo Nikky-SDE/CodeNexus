@@ -9,7 +9,7 @@ export const getContests = async (req, res) => {
   try {
     const contests = await Contest.find({})
       .populate('createdBy', 'username')
-      .sort({ startTime: -1 })
+      .sort({ createdAt: -1 })
       .limit(50);
     res.json({ contests });
   } catch (err) {
